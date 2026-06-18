@@ -18,7 +18,7 @@ const seedAll = async () => {
 
     // ─── Seed roles into DB ───────────────────────────────────────────────────
     const rolesToSeed = [
-      { name: "Super Admin",    slug: "superadmin",       color: "#ef4444", description: "Full system access",           permissions: DEFAULT_ROLE_PERMISSIONS.superadmin },
+      { name: "Super Admin",    slug: "superadmin",        color: "#ef4444", description: "Full system access",           permissions: DEFAULT_ROLE_PERMISSIONS.superadmin },
       { name: "Admin",          slug: "admin",             color: "#f97316", description: "Administrative access",        permissions: DEFAULT_ROLE_PERMISSIONS.admin },
       { name: "Manager",        slug: "manager",           color: "#8b5cf6", description: "Management access",            permissions: DEFAULT_ROLE_PERMISSIONS.manager },
       { name: "HR",             slug: "hr",                color: "#06b6d4", description: "Human resources access",       permissions: DEFAULT_ROLE_PERMISSIONS.hr },

@@ -4,6 +4,7 @@ const path = require("path");
 const { extractText } = require("../services/tender/fileExtractor");
 const Admin = require("../models/Admin");
 const { generateBOQExcel } = require("../services/tender/generateBOQExcel");
+const { sendVendorProposalEmail } = require("../utils/mailer");
 const OpenAI = require("openai");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -148,11 +149,19 @@ const downloadXlsx = async (req, res) => {
 // Keep old route alias for backward compat
 const downloadDocx = downloadXlsx;
 
-/* ─── GET /api/tender ─── */
+/* ─── GET /api/tender ───
+   Only return GENUINE tenders — i.e. ones that actually produced a BOQ.
+   Abandoned "Untitled Tender" sessions (created by /start but never
+   finished / never generated a proposal) are excluded so the list only
+   shows real, completed proposals. No existing creation logic changed —
+   this only filters what the list endpoint returns.
+*/
 const getAllTenders = async (req, res) => {
   try {
-    const tenders = await Tender.find()
-      .select("title status docFileName createdAt updatedAt")
+    const tenders = await Tender.find({
+      generatedProposal: { $exists: true, $nin: [null, ""] },
+    })
+      .select("title status docFileName createdAt updatedAt sentTo")
       .sort({ createdAt: -1 });
     res.json({ success: true, tenders });
   } catch (err) {
@@ -202,7 +211,12 @@ const getVendors = async (req, res) => {
   }
 };
 
-/* ─── POST /api/tender/:id/send ─── */
+/* ─── POST /api/tender/:id/send ───
+   Now actually sends a real email via Nodemailer (utils/mailer.js).
+   The vendor is only recorded as "sent" (and the tender flipped to
+   "pending") if the email genuinely succeeds — so the "Sent" badge
+   on the dashboard reflects reality, not a fake success response.
+*/
 const sendToVendor = async (req, res) => {
   try {
     const { id } = req.params;
@@ -217,9 +231,58 @@ const sendToVendor = async (req, res) => {
     ]);
     if (!tender) return res.status(404).json({ success: false, error: "Tender not found." });
     if (!vendor) return res.status(404).json({ success: false, error: "Vendor not found." });
+    if (!vendor.email) return res.status(400).json({ success: false, error: "Vendor has no email address on file." });
 
     if (!tender.sentTo) tender.sentTo = [];
     const alreadySent = tender.sentTo.some(s => String(s.vendorId) === String(vendorId));
+
+    const isCustom = docType === "custom" && req.file;
+    const attachments = [];
+
+    if (isCustom) {
+      attachments.push({
+        filename: customDocName || req.file.originalname,
+        path: req.file.path,
+      });
+    } else {
+      if (!tender.generatedProposal) {
+        return res.status(400).json({ success: false, error: "No generated BOQ available to send." });
+      }
+      const excelBuffer = await generateBOQExcel(tender.generatedProposal, tender.title);
+      const safeTitle = (tender.title || "BOQ")
+        .replace(/[^a-zA-Z0-9\s]/g, "")
+        .trim()
+        .replace(/\s+/g, "_")
+        .slice(0, 60);
+      attachments.push({
+        filename: `${safeTitle}_BOQ.xlsx`,
+        content: excelBuffer,
+      });
+    }
+
+    const htmlBody = `
+      <p>Hello ${vendor.name || "Vendor"},</p>
+      <p>You have received a new tender proposal: <strong>${tender.title || "Untitled Tender"}</strong>.</p>
+      <p>Please find the attached document for full details. Kindly review and respond at your earliest convenience.</p>
+      <p>Regards,<br/>Tender Management Team</p>
+    `;
+
+    try {
+      await sendVendorProposalEmail({
+        to: vendor.email,
+        vendorName: vendor.name,
+        tenderTitle: tender.title,
+        htmlBody,
+        attachments,
+      });
+    } catch (mailErr) {
+      console.error("sendVendorProposalEmail error:", mailErr);
+      return res.status(502).json({
+        success: false,
+        error: "Failed to send email to vendor. Please check your SMTP configuration (EMAIL_HOST/EMAIL_USER/EMAIL_PASS).",
+      });
+    }
+
     if (!alreadySent) {
       tender.sentTo.push({
         vendorId: vendor._id, vendorName: vendor.name, vendorEmail: vendor.email,
@@ -231,7 +294,7 @@ const sendToVendor = async (req, res) => {
 
     res.json({
       success: true,
-      message: `Proposal sent to ${vendor.name} (${vendor.email})`,
+      message: `Proposal emailed to ${vendor.name} (${vendor.email})`,
       vendor: { _id: vendor._id, name: vendor.name, email: vendor.email },
       alreadySent,
     });

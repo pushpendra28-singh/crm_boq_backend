@@ -28,6 +28,303 @@ const resolvePermissions = async (admin) => {
   return [];
 };
 
+
+// ─── Public User Registration ─────────────────────────────────────────────────
+
+exports.registerUser = async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      password,
+      accountType,
+      profile = {},
+    } = req.body;
+
+    /* ───────── Required fields ───────── */
+
+    if (!name?.trim() || !email?.trim() || !password) {
+      return res.status(400).json({
+        message: "Name, email and password are required",
+      });
+    }
+
+    if (!["business", "personal"].includes(accountType)) {
+      return res.status(400).json({
+        message: "Please select a valid account type",
+      });
+    }
+
+    /* ───────── Email validation ───────── */
+
+    const normalizedEmail = email
+      .toLowerCase()
+      .trim();
+
+    const emailRegex =
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({
+        message: "Please enter a valid email address",
+      });
+    }
+
+    /* ───────── Password validation ───────── */
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        message:
+          "Password must be at least 8 characters",
+      });
+    }
+
+    /* ───────── Business validation ───────── */
+
+    if (
+      accountType === "business" &&
+      !profile.businessName?.trim()
+    ) {
+      return res.status(400).json({
+        message: "Business name is required",
+      });
+    }
+
+    /* ───────── Duplicate email ───────── */
+
+    const existingUser = await Admin.findOne({
+      email: normalizedEmail,
+    });
+
+    if (existingUser) {
+      return res.status(409).json({
+        message:
+          "An account with this email already exists",
+      });
+    }
+
+    /*
+      Registered user ko frontend role choose nahi karega.
+
+      Backend DB me existing "user" role find karega.
+    */
+
+    const userRole = await Role.findOne({
+      $or: [
+        { slug: "user" },
+        { name: /^user$/i },
+      ],
+    });
+
+    if (!userRole) {
+      console.error(
+        "Registration error: Default user role not found"
+      );
+
+      return res.status(503).json({
+        message:
+          "Registration is temporarily unavailable. Please contact administrator.",
+      });
+    }
+
+    /* ───────── Optional profile validation ───────── */
+
+    const phone =
+      String(profile.phone || "").trim();
+
+    if (phone) {
+      const digits =
+        phone.replace(/\D/g, "");
+
+      if (
+        digits.length < 10 ||
+        digits.length > 15
+      ) {
+        return res.status(400).json({
+          message:
+            "Please enter a valid phone number",
+        });
+      }
+    }
+
+    const gstin =
+      accountType === "business"
+        ? String(profile.gstin || "")
+            .trim()
+            .toUpperCase()
+        : "";
+
+    if (gstin && gstin.length !== 15) {
+      return res.status(400).json({
+        message:
+          "GSTIN must contain 15 characters",
+      });
+    }
+
+    const bankDetails =
+      profile.bankDetails || {};
+
+    const hasAnyBankDetail = [
+      bankDetails.accountHolderName,
+      bankDetails.bankName,
+      bankDetails.accountNumber,
+      bankDetails.ifsc,
+    ].some((value) =>
+      String(value || "").trim()
+    );
+
+    /*
+      Agar bank setup start kiya hai,
+      incomplete bank record save nahi karenge.
+    */
+
+    if (hasAnyBankDetail) {
+      if (
+        !bankDetails.accountHolderName?.trim() ||
+        !bankDetails.bankName?.trim() ||
+        !bankDetails.accountNumber?.trim() ||
+        !bankDetails.ifsc?.trim()
+      ) {
+        return res.status(400).json({
+          message:
+            "Please complete all bank details or skip bank setup",
+        });
+      }
+    }
+
+    /* ───────── Password hash ───────── */
+
+    const hashedPassword =
+      await bcrypt.hash(password, 10);
+
+    /* ───────── Create user ───────── */
+
+    const user = await Admin.create({
+      name: name.trim(),
+
+      email: normalizedEmail,
+
+      password: hashedPassword,
+
+      /*
+        SECURITY:
+        role request body se nahi aa raha.
+      */
+      role: userRole.slug,
+
+      permissions: [],
+
+      isActive: true,
+
+      accountType,
+
+      profile: {
+        phone,
+
+        businessName:
+          accountType === "business"
+            ? String(
+                profile.businessName || ""
+              ).trim()
+            : "",
+
+        businessType:
+          accountType === "business"
+            ? String(
+                profile.businessType || ""
+              ).trim()
+            : "",
+
+        profession:
+          accountType === "personal"
+            ? String(
+                profile.profession || ""
+              ).trim()
+            : "",
+
+        gstin,
+
+        address: String(
+          profile.address || ""
+        ).trim(),
+
+        bankDetails: {
+          accountHolderName: String(
+            bankDetails.accountHolderName || ""
+          ).trim(),
+
+          bankName: String(
+            bankDetails.bankName || ""
+          ).trim(),
+
+          accountNumber: String(
+            bankDetails.accountNumber || ""
+          ).trim(),
+
+          ifsc: String(
+            bankDetails.ifsc || ""
+          )
+            .trim()
+            .toUpperCase(),
+        },
+      },
+    });
+
+    return res.status(201).json({
+      message:
+        "Registration successful. You can now sign in.",
+
+      user: {
+        /*
+          MongoDB _id hi permanent unique user ID hai.
+        */
+        id: user._id,
+
+        name: user.name,
+
+        email: user.email,
+
+        role: user.role,
+
+        accountType: user.accountType,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "User registration error:",
+      error
+    );
+
+    /*
+      Race condition me same email par
+      MongoDB unique index catch.
+    */
+    if (error?.code === 11000) {
+      return res.status(409).json({
+        message:
+          "An account with this email already exists",
+      });
+    }
+
+    if (
+      error?.name === "ValidationError"
+    ) {
+      return res.status(400).json({
+        message:
+          Object.values(
+            error.errors
+          )[0]?.message ||
+          "Invalid registration details",
+      });
+    }
+
+    return res.status(500).json({
+      message:
+        "Unable to create your account. Please try again.",
+    });
+  }
+};
+
 // ─── Login ─────────────────────────────────────────────────────────────────────
 exports.loginAdmin = async (req, res) => {
   try {

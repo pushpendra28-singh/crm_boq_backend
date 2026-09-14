@@ -15,6 +15,8 @@ const ALL_PERMISSIONS = [
   // Users & Roles
   "view_users", "create_users", "edit_users", "delete_users",
   "view_roles", "create_roles", "edit_roles", "delete_roles",
+
+  "view_invoices",
   // Settings
   "view_settings", "edit_settings",
   // Analytics
@@ -188,6 +190,78 @@ const adminSchema = new mongoose.Schema(
       ref: "Admin",
       default: null,
     },
+
+    accountType: {
+  type: String,
+  enum: ["business", "personal", "internal"],
+  default: "internal",
+},
+
+profile: {
+  phone: {
+    type: String,
+    trim: true,
+    default: "",
+  },
+
+  businessName: {
+    type: String,
+    trim: true,
+    default: "",
+  },
+
+  businessType: {
+    type: String,
+    trim: true,
+    default: "",
+  },
+
+  profession: {
+    type: String,
+    trim: true,
+    default: "",
+  },
+
+  gstin: {
+    type: String,
+    trim: true,
+    uppercase: true,
+    default: "",
+  },
+
+  address: {
+    type: String,
+    trim: true,
+    default: "",
+  },
+
+  bankDetails: {
+    accountHolderName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    bankName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    accountNumber: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    ifsc: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
+    },
+  },
+},
   },
   { timestamps: true }
 );

@@ -21,6 +21,9 @@ const assignedProjectsRoutes = require("./routes/assignedProjectsRoutes");
 const assignedLeadRoutes = require("./routes/assignedLeadRoutes");
 const newProposalRoutes = require("./routes/newProposalRoutes");
 const tenderRoutes = require("./routes/tenderRoutes");
+const invoiceRoutes = require("./routes/invoiceRoutes");
+const businessProfileRoutes = require("./routes/businessProfileRoutes");
+const customerRoutes = require("./routes/customerRoutes");
 
 const app = express();
 
@@ -47,6 +50,9 @@ app.use("/api/my-projects", assignedProjectsRoutes);
 app.use("/api", assignedLeadRoutes);
 app.use("/api/new-proposals", newProposalRoutes);
 app.use("/api/tender", tenderRoutes);
+app.use("/api/invoices", invoiceRoutes);
+app.use("/api/business-profile", businessProfileRoutes);
+app.use("/api/customers", customerRoutes);
 
 
 

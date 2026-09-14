@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 const {
   loginAdmin,
+   registerUser,
   getProfile,
   getAdmins,
   createUser,
@@ -14,6 +15,7 @@ const { protect, requirePermission, requireRole } = require("../middleware/authM
 
 // Public
 router.post("/login", loginAdmin);
+router.post("/register", registerUser);
 
 // Protected
 router.get("/profile", protect, getProfile);

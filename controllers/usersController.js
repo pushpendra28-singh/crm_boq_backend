@@ -61,7 +61,7 @@ exports.getUsers = async (req, res) => {
 // ─── Create user ───────────────────────────────────────────────────────────────
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, employment } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: "Name, email, and password are required" });
@@ -84,7 +84,17 @@ exports.createUser = async (req, res) => {
       password: hashedPassword,
       role: role || "employee",
       isActive: true,
+       employment: {
+    joiningDate: employment?.joiningDate || null,
+    exitDate: employment?.currentlyWorking
+      ? null
+      : employment?.exitDate || null,
+    currentlyWorking:
+      employment?.currentlyWorking ?? true,
+  },
+
     });
+    
 
     await user.save();
 
@@ -102,7 +112,7 @@ exports.createUser = async (req, res) => {
 exports.updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, employment } = req.body;
 
     // Prevent editing own record via this endpoint to avoid accidental role downgrade
     if (req.admin._id.toString() === id) {
@@ -130,6 +140,16 @@ exports.updateUser = async (req, res) => {
       user.password = await bcrypt.hash(password, 10);
     }
 
+    if (employment) {
+  user.employment = {
+    joiningDate: employment.joiningDate || null,
+    exitDate: employment.currentlyWorking
+      ? null
+      : employment.exitDate || null,
+    currentlyWorking:
+      employment.currentlyWorking ?? true,
+  };
+}
     await user.save();
 
     const userObj = user.toObject();

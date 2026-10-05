@@ -376,6 +376,7 @@ exports.loginAdmin = async (req, res) => {
         permissions,
         avatar: admin.avatar,
         lastLogin: admin.lastLogin,
+        employment: admin.employment,
       },
     });
   } catch (error) {
@@ -403,6 +404,7 @@ exports.getProfile = async (req, res) => {
       avatar: admin.avatar,
       lastLogin: admin.lastLogin,
       createdAt: admin.createdAt,
+      employment: admin.employment,
     });
   } catch (error) {
     res.status(500).json({ message: "Server error" });

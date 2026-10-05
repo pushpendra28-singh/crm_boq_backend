@@ -17,6 +17,39 @@ const ALL_PERMISSIONS = [
   "view_roles", "create_roles", "edit_roles", "delete_roles",
 
   "view_invoices",
+
+  // Attendance
+"view_attendance",
+"mark_attendance",
+  "delete_attendance",
+  "edit_attendance",
+  "view_all_attendance",
+  "view_monthly_records",
+  "manage_wfh_settings",
+
+// Leave management
+  "view_leaves",
+"apply_leaves",
+"approve_leaves",
+"view_all_leaves",
+"manage_leave_settings",
+"manage_leave_balances",
+
+
+// Payroll
+"view_payroll",
+"manage_payroll",
+"finalize_payroll",
+
+
+
+  // Holidays and weekly offs
+"view_holidays",
+"create_holidays",
+"edit_holidays",
+"delete_holidays",
+"manage_weekly_offs",
+  
   // Settings
   "view_settings", "edit_settings",
   // Analytics
@@ -260,6 +293,23 @@ profile: {
       uppercase: true,
       default: "",
     },
+  },
+},
+
+employment: {
+  joiningDate: {
+    type: Date,
+    default: null,
+  },
+
+  exitDate: {
+    type: Date,
+    default: null,
+  },
+
+  currentlyWorking: {
+    type: Boolean,
+    default: true,
   },
 },
   },

@@ -67,7 +67,18 @@ exports.updateRole = async (req, res) => {
       role.slug = name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
     }
     if (description !== undefined) role.description = description;
-    if (permissions && permissions.length > 0) role.permissions = permissions;
+    if (permissions !== undefined) {
+  if (
+    !Array.isArray(permissions) ||
+    permissions.some((permission) => typeof permission !== "string")
+  ) {
+    return res.status(400).json({
+      message: "Permissions must be an array of strings.",
+    });
+  }
+
+  role.permissions = [...new Set(permissions)];
+}
     if (color) role.color = color;
 
     await role.save();

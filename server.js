@@ -24,10 +24,22 @@ const tenderRoutes = require("./routes/tenderRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
 const businessProfileRoutes = require("./routes/businessProfileRoutes");
 const customerRoutes = require("./routes/customerRoutes");
+const attendanceRoutes = require("./routes/attendanceRoutes");
+const initAttendance = require("./config/initAttendance");
+const holidayRoutes = require("./routes/holidayRoutes");
+const initHolidays = require("./config/initHolidays");
+const weeklyOffRoutes = require("./routes/weeklyOffRoutes");
+const leaveRoutes = require("./routes/leaveRoutes");
+const initLeaves = require("./config/initLeaves");
+const { startLeaveMailer } = require("./services/leaveMailer");
+const monthlyWorkRecordRoutes = require("./routes/monthlyWorkRecordRoutes");
+const workFromHomeRoutes = require("./routes/workFromHomeRoutes");
+const payrollRoutes = require("./routes/payrollRoutes");
+
+
+
 
 const app = express();
-
-connectDB();
 
 app.use(cors());
 app.use(express.json());
@@ -53,6 +65,15 @@ app.use("/api/tender", tenderRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/business-profile", businessProfileRoutes);
 app.use("/api/customers", customerRoutes);
+app.use("/api/attendance", attendanceRoutes);
+app.use("/api/leaves", leaveRoutes);
+app.use("/api/holidays", holidayRoutes);
+app.use("/api/weekly-offs", weeklyOffRoutes);
+app.use("/api/monthly-work-records", monthlyWorkRecordRoutes);
+app.use("/api/wfh-settings", workFromHomeRoutes);
+app.use("/api/payroll", payrollRoutes);
+
+
 
 
 
@@ -60,8 +81,23 @@ app.get("/", (req, res) => {
   res.send("API Running");
 });
 
-const PORT = process.env.PORT 
-console.log('PORT:', PORT);
-app.listen(process.env.PORT, () => {
-  console.log(`Server running on port ${process.env.PORT}`);
+async function startServer() {
+  await connectDB();
+
+  await initAttendance();
+  await initHolidays();
+  await initLeaves();
+startLeaveMailer();
+  console.log("Attendance office configuration initialized");
+
+  const PORT = process.env.PORT;
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+startServer().catch((error) => {
+  console.error("Server initialization failed:", error.message);
+  process.exit(1);
 });

@@ -107,51 +107,8 @@ const requirePermission = (...permissions) => {
     }
   };
 };
-// const requirePermission = (...permissions) => {
-//   return (req, res, next) => {
-//     if (!req.admin) {
-//       return res.status(401).json({ message: "Not authenticated" });
-//     }
 
-//     const adminPerms =
-//       req.admin.permissions && req.admin.permissions.length > 0
-//         ? req.admin.permissions
-//         : Admin.getDefaultPermissions(req.admin.role);
 
-//     // Superadmin bypasses all permission checks
-//     if (req.admin.role === "superadmin") return next();
-
-//     const hasAll = permissions.every((p) => adminPerms.includes(p));
-//     if (!hasAll) {
-//       return res.status(403).json({
-//         message: `Access denied. Missing permission(s): ${permissions.filter(p => !adminPerms.includes(p)).join(", ")}`,
-//       });
-//     }
-//     next();
-//   };
-// };
-
-// ─── Require any one of given permissions ─────────────────────────────────────
-// const requireAnyPermission = (...permissions) => {
-//   return (req, res, next) => {
-//     if (!req.admin) {
-//       return res.status(401).json({ message: "Not authenticated" });
-//     }
-
-//     if (req.admin.role === "superadmin") return next();
-
-//     const adminPerms =
-//       req.admin.permissions && req.admin.permissions.length > 0
-//         ? req.admin.permissions
-//         : Admin.getDefaultPermissions(req.admin.role);
-
-//     const hasAny = permissions.some((p) => adminPerms.includes(p));
-//     if (!hasAny) {
-//       return res.status(403).json({ message: "Access denied. Insufficient permissions." });
-//     }
-//     next();
-//   };
-// };
 const requireAnyPermission = (...permissions) => {
   return async (req, res, next) => {
     try {

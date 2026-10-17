@@ -12,10 +12,19 @@ const run = fn => async (req, res) => { try { await fn(req, res); } catch (e) {
   if (e.name === 'VersionError' || e.code === 11000) return res.status(409).json({ message: 'Another update occurred. Refresh before retrying; do not submit a duplicate request.' });
   if (e.status) return res.status(e.status).json({ message: e.message });
   if (e.name === 'ValidationError' || e.name === 'CastError') return res.status(400).json({ message: 'Invalid leave details. Check the form and try again.' });
-  console.error('Leave operation failed:', e.name, e.code || '');
+  // console.error('Leave operation failed:', e.name, e.code || '');
+  console.error('Leave operation failed:', e);
   res.status(500).json({ message: 'Unable to complete the operation. Refresh to check whether it was saved before trying again.' });
 } };
 async function settings() { const s = await Settings.findOne({ key: 'company' }); if (!s) throw problem(503, 'Leave settings are not initialized.'); return s; }
+async function applicantFor(req, body) {
+  if (!Object.prototype.hasOwnProperty.call(body, 'employee')) return req.admin._id;
+  if (req.admin.role !== 'superadmin') throw problem(403, 'Only a superadmin may specify an employee.');
+  const employee = id(body.employee);
+  const user = await Admin.findOne({ _id: employee, isActive: true });
+  if (!user) throw problem(404, 'Active employee not found.');
+  return user._id;
+}
 function serialize(account, r, viewer) {
   const employee = account.employee || { _id: null, name: 'Deleted employee', email: '' };
   const own = String(employee._id || employee) === String(viewer._id);
@@ -90,28 +99,30 @@ exports.allocate = run(async (req, res) => {
   await a.save(); res.json({ message: 'Leave allocation saved with audit history.' });
 });
 exports.preview = run(async (req, res) => {
+  const employee = await applicantFor(req, req.body);
   const s = await settings(), result = await calculate(s, req.body);
-  const a = await Account.findOne({ employee: req.admin._id, year: Number(req.body.from.slice(0, 4)) });
+  const a = await Account.findOne({ employee, year: Number(req.body.from.slice(0, 4)) });
   res.json({ units: result.units, excludedDays: result.excludedDays, paid: result.type.paid, balance: balances(a || { allocations: [], requests: [] }, result.type._id) });
 });
+
 exports.apply = run(async (req, res) => {
-  const b = req.body, year = range(b.from, b.to, b.portion), reason = reasonOf(b.reason);
+  const b = req.body, employee = await applicantFor(req, b), year = range(b.from, b.to, b.portion), reason = reasonOf(b.reason);
   if (typeof b.key !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(b.key)) throw problem(400, 'A submission key is required. Refresh the form.');
-  const a = await accountFor(req.admin._id, year);
+  const a = await accountFor(employee, year);
   const existing = a.requests.find(r => r.key === b.key);
   if (existing) {
     if (existing.from !== b.from || existing.to !== b.to || String(existing.typeId) !== b.typeId || existing.portion !== b.portion || existing.reason !== reason) throw problem(409, 'This submission key was already used. Open a new application.');
     return res.json({ message: 'This leave request was already submitted.', requestId: existing._id });
   }
   const s = await settings(), result = await calculate(s, b);
-  const recipients = await reviewers(s.reviewers, req.admin._id);
+  const recipients = (await reviewers(s.reviewers, employee)).filter(u => String(u._id) !== String(req.admin._id));
   if (!recipients.length) throw problem(409, 'No eligible approver is configured. Contact your administrator.');
   if (a.requests.length >= 250) throw problem(409, 'Annual request limit reached. Contact your administrator.');
   if (overlaps(a, result.days, b.portion)) throw problem(409, 'An active leave request already overlaps these dates.');
   if (result.type.paid && balances(a, result.type._id).available < result.units) throw problem(409, 'Insufficient paid-leave balance. Contact your administrator or choose an unpaid leave type.');
   a.requests.push({ _id: new mongoose.Types.ObjectId(), key: b.key, typeId: result.type._id, typeName: result.type.name, paid: result.type.paid, from: b.from, to: b.to, portion: b.portion, days: result.days, units: result.units, reason, status: 'pending', version: 0, reviewers: recipients.map(u => u._id), history: [{ actor: req.admin._id, at: new Date(), status: 'pending', note: reason }], createdAt: new Date() });
   const r = a.requests[a.requests.length - 1];
-  notify(a, r, [...recipients.map(u => u._id), req.admin._id], req.admin.name, reason);
+  notify(a, r, [...recipients.map(u => u._id), employee, req.admin._id], req.admin.name, reason);
   await a.save(); res.status(201).json({ message: 'Leave request submitted. Email notifications are queued.', requestId: r._id });
 });
 exports.list = run(async (req, res) => {

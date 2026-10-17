@@ -18,12 +18,15 @@ const ALL_PERMISSIONS = [
 
   "view_invoices",
 
+  "view_tenders", "create_tenders", "edit_tenders", "delete_tenders",
+
   // Attendance
 "view_attendance",
 "mark_attendance",
   "delete_attendance",
   "edit_attendance",
   "view_all_attendance",
+  "mark_attendance_for_others",
   "view_monthly_records",
   "manage_wfh_settings",
 
@@ -110,7 +113,7 @@ const formatPermissions = (permissions) => {
     const label = `${action.charAt(0).toUpperCase() + action.slice(1)} ${restParts.join(" ")}`;
  
     // group  →  ALL resource words title-cased  →  "Assigned Projects"
-    const group = restParts
+    const group = perm === "mark_attendance_for_others" ? "Attendance" : restParts
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(" ");
  

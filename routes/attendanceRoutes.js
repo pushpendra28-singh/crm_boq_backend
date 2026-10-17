@@ -13,6 +13,7 @@ router.get('/history', requirePermission('view_attendance'), getMyHistory);
 router.post('/check-in', requirePermission('mark_attendance'), checkIn);
 router.post('/check-out', requirePermission('mark_attendance'), checkOut);
 router.get('/all', requirePermission('view_all_attendance'), management.list);
+router.post('/manual', requirePermission('view_all_attendance', 'mark_attendance_for_others'), management.manualMark);
 router.patch('/:id', requirePermission('view_all_attendance', 'edit_attendance'), management.edit);
 router.delete('/:id', requirePermission('view_all_attendance', 'delete_attendance'), management.remove);
 router.get('/schedule', requirePermission('view_attendance'), getSchedule);

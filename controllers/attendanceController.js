@@ -38,11 +38,11 @@ function present(record) {
     checkIn: record.checkIn,
     checkOut: record.checkOut,
     attendanceStatus: record.attendanceStatus || "present",
-    workMode: record.workMode || "office",
+    workMode: record.manualMark ? null : record.workMode || "office",
     wfhType: record.workMode === "wfh" ? record.wfhType || "full_day" : null,
-    arrivalStatus: record.attendanceStatus === "absent" ? null : record.arrivalStatus,
-    completionStatus: record.checkOut ? "completed" : "incomplete",
-    workingMinutes: record.attendanceStatus === "absent" ? 0 : record.checkOut
+    arrivalStatus: record.attendanceStatus === "absent" || record.manualMark ? null : record.arrivalStatus,
+    completionStatus: record.manualMark || record.checkOut ? "completed" : "incomplete",
+    workingMinutes: record.attendanceStatus === "absent" ? 0 : record.manualMark ? null : record.checkOut
       ? Math.max(0, Math.floor((new Date(record.checkOut.at) - new Date(record.checkIn.at)) / 60000)) : null,
     earlyDeparture: record.checkOut
       ? new Date(record.checkOut.at) < new Date(record.shiftSnapshot.scheduledCheckOut) : false,
@@ -68,15 +68,15 @@ exports.getToday = async (req, res) => {
     ]);
     return res.status(200).json({ success: true, message: "Today's attendance fetched successfully.",
       serverTime: now, attendanceDate: shift.attendanceDate,
-      workMode: record?.workMode || "office",
+      workMode: record?.manualMark ? null : record?.workMode || "office",
       wfh: { enabled: Boolean(wfhSetting?.enabled), dayType: wfhSetting?.enabled ? (wfhSetting.dayType || "full_day") : null },
       office: { name: office.name, latitude: office.latitude, longitude: office.longitude,
         radiusMeters: office.radiusMeters, maxAccuracyMeters: office.maxAccuracyMeters,
         timezone: office.timezone, checkInTime: office.checkInTime, checkOutTime: office.checkOutTime,
         graceMinutes: office.graceMinutes },
-      attendance: record?.deletedAt ? null : present(record), nextAction: record?.deletedAt || record?.attendanceStatus === "absent" ? "completed" : !record ? "check_in" : record.checkOut ? "completed" : "check_out",
-      actionBlocked: !!record?.deletedAt || record?.attendanceStatus === "absent",
-      actionMessage: record?.deletedAt ? "Today’s record was removed by an administrator. Contact your administrator for assistance." : record?.attendanceStatus === "absent" ? "Today is marked absent by an administrator." : null });
+      attendance: record?.deletedAt ? null : present(record),       nextAction: record?.deletedAt || record?.attendanceStatus === "absent" || record?.manualMark ? "completed" : !record ? "check_in" : record.checkOut ? "completed" : "check_out",
+      actionBlocked: !!record?.deletedAt || record?.attendanceStatus === "absent" || !!record?.manualMark,
+      actionMessage: record?.deletedAt ? "Today’s record was removed by an administrator. Contact your administrator for assistance." : record?.attendanceStatus === "absent" ? "Today is marked absent by an administrator." : record?.manualMark ? "Today’s attendance was marked by an administrator." : null });
   } catch (error) { return fail(res, error, "today"); }
 };
 exports.checkIn = async (req, res) => {
@@ -132,6 +132,7 @@ exports.checkOut = async (req, res) => {
     const filter = { employeeId: req.admin._id, attendanceDate };
     const current = await Attendance.findOne(filter).lean();
     if (!current) throw new AttendanceError("CHECK_IN_REQUIRED", "Check in today before checking out. Previous-day records cannot be checked out here.", 409);
+    if (current.manualMark) throw new AttendanceError("ATTENDANCE_LOCKED", "This attendance was marked by an administrator and cannot be checked out here.", 409);
     if (current.deletedAt || current.attendanceStatus === "absent") throw new AttendanceError("ATTENDANCE_LOCKED", "This record was removed or marked absent. Contact your administrator.", 409);
     if (current.checkOut) throw new AttendanceError("ALREADY_CHECKED_OUT", "You have already checked out today.", 409);
     // Use the work mode captured at check-in for this attendance day.

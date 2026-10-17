@@ -150,7 +150,6 @@ proposalSchema.index({ leadId: 1 });
 proposalSchema.index({ status: 1 });
 proposalSchema.index({ createdAt: -1 });
 proposalSchema.index({ "customer.whatsapp": 1 });
-proposalSchema.index({ trackingToken: 1 });
 proposalSchema.index({ generationStatus: 1 });
 proposalSchema.index({ expiresAt: 1 });
 

@@ -27,8 +27,10 @@ function correction(record, body, now = new Date()) {
   const why = reason(body.reason);
   const oldDay = new Date(`${record.attendanceDate}T00:00:00+05:30`);
   const delta = new Date(`${date}T00:00:00+05:30`) - oldDay;
-  const shift = { ...record.shiftSnapshot };
-  for (const key of ['scheduledCheckIn','scheduledCheckOut','graceEndsAt']) shift[key] = new Date(new Date(shift[key]).getTime() + delta);
+  const shift = record.shiftSnapshot ? { ...record.shiftSnapshot } : undefined;
+  if (shift) {
+    for (const key of ['scheduledCheckIn','scheduledCheckOut','graceEndsAt']) shift[key] = new Date(new Date(shift[key]).getTime() + delta);
+  }
   let checkIn = record.checkIn, checkOut = record.checkOut;
   
   if (["present", "half_day"].includes(body.attendanceStatus)) {
@@ -40,8 +42,15 @@ function correction(record, body, now = new Date()) {
     checkOut = out ? { ...(record.checkOut || { originalAt: null, location: null }), at: out } : null;
   }
   // For absence keep captured punches as audit evidence; APIs suppress effective times.
-  return { reason: why, update: { attendanceDate: date, attendanceStatus: body.attendanceStatus,
-    checkIn, checkOut, shiftSnapshot: shift,
-    arrivalStatus: new Date(checkIn.at) > shift.graceEndsAt ? 'late' : 'on_time' } };
+  const update = { attendanceDate: date, attendanceStatus: body.attendanceStatus };
+  if (checkIn !== undefined) update.checkIn = checkIn;
+  if (checkOut !== undefined) update.checkOut = checkOut;
+  if (shift !== undefined) update.shiftSnapshot = shift;
+  if (checkIn?.at && shift?.graceEndsAt) {
+    update.arrivalStatus = new Date(checkIn.at) > shift.graceEndsAt ? 'late' : 'on_time';
+  } else if (record.arrivalStatus !== undefined) {
+    update.arrivalStatus = record.arrivalStatus;
+  }
+  return { reason: why, update };
 }
 module.exports = { day, istDay, reason, correction, snapshot };

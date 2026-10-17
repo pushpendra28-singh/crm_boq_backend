@@ -8,23 +8,24 @@ const fail = (res, error) => {
   console.error('Attendance management failed:', error.name);
   return res.status(500).json({ success:false, message:'Unable to save or load attendance. Refresh records before retrying.' });
 };
-function validateId(id) {
-  if (typeof id !== 'string' || !/^[a-f\d]{24}$/i.test(id)) throw new AttendanceError('INVALID_ID','Invalid attendance ID.');
+function validateId(id, label = 'attendance') {
+  if (typeof id !== 'string' || !/^[a-f\d]{24}$/i.test(id)) throw new AttendanceError('INVALID_ID',`Invalid ${label} ID.`);
 }
 function revision(body) {
   if (!Number.isInteger(body?.version) || body.version < 0) throw new AttendanceError('INVALID_VERSION','Refresh the record before making changes.');
 }
 function output(r) {
   const absent = r.attendanceStatus === 'absent';
+  const manuallyMarked = Boolean(r.manualMark);
   return { id:r._id, version:r.__v, employeeId:r.employeeId?._id || null,
     employeeName:r.employeeId?.name || 'Deleted user', employeeEmail:r.employeeId?.email || '',
     attendanceDate:r.attendanceDate, attendanceStatus:r.attendanceStatus || 'present',
-    workMode:r.workMode || 'office', wfhType:r.workMode === 'wfh' ? r.wfhType || 'full_day' : null,
-    arrivalStatus:absent ? null : r.arrivalStatus, checkInAt:absent ? null : r.checkIn?.at,
-    checkOutAt:absent ? null : r.checkOut?.at,
-    checkInLocation:absent ? null : r.checkIn?.location || null,
-    checkOutLocation:absent ? null : r.checkOut?.location || null,
-    workingMinutes:absent ? 0 : r.checkOut ? Math.max(0,Math.floor((new Date(r.checkOut.at)-new Date(r.checkIn.at))/60000)) : null };
+    workMode:manuallyMarked ? null : r.workMode || 'office', wfhType:r.workMode === 'wfh' ? r.wfhType || 'full_day' : null,
+    arrivalStatus:absent || manuallyMarked ? null : r.arrivalStatus, checkInAt:absent || manuallyMarked ? null : r.checkIn?.at,
+    checkOutAt:absent || manuallyMarked ? null : r.checkOut?.at,
+    checkInLocation:absent || manuallyMarked ? null : r.checkIn?.location || null,
+    checkOutLocation:absent || manuallyMarked ? null : r.checkOut?.location || null,
+    workingMinutes:absent ? 0 : manuallyMarked ? null : r.checkOut ? Math.max(0,Math.floor((new Date(r.checkOut.at)-new Date(r.checkIn.at))/60000)) : null };
 }
 exports.list = async (req,res) => {
   try {
@@ -71,11 +72,94 @@ if (req.query.directory === "1") {
     }
     const [total,rows] = await Promise.all([
       Attendance.countDocuments(filter),
-      Attendance.find(filter).select('employeeId attendanceDate attendanceStatus arrivalStatus workMode wfhType checkIn checkOut __v')
+      Attendance.find(filter).select('employeeId attendanceDate attendanceStatus arrivalStatus workMode wfhType checkIn checkOut manualMark __v')
         .populate('employeeId','name email').sort({attendanceDate:-1,_id:-1}).skip((page-1)*20).limit(20).lean(),
     ]);
     res.json({success:true,records:rows.map(output),page,total,pages:Math.max(1,Math.ceil(total/20))});
   } catch(e) { fail(res,e); }
+};
+exports.manualMark = async (req,res) => {
+  try {
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new AttendanceError('INVALID_REQUEST','Provide an employee ID and attendance date.');
+    }
+    validateId(body.employeeId, 'employee');
+    const attendanceDate = day(body.attendanceDate);
+    if (attendanceDate > istDay()) {
+      throw new AttendanceError('INVALID_DATE','Future attendance dates are not allowed.');
+    }
+
+    const employee = await Admin.findOne({
+      _id: body.employeeId,
+      isActive: true,
+      'employment.currentlyWorking': { $ne: false },
+    }).select('_id');
+    if (!employee) throw new AttendanceError('EMPLOYEE_NOT_FOUND','An active employee with current employment was not found.',404);
+
+    const existing = await Attendance.findOne({ employeeId: employee._id, attendanceDate }).lean();
+    if (existing) {
+      if (existing.deletedAt && existing.manualMark) {
+        const markedAt = new Date();
+        const restored = await Attendance.findOneAndUpdate(
+          { _id: existing._id, __v: existing.__v, deletedAt: { $ne: null }, 'manualMark.action': 'mark_present' },
+          {
+            $set: {
+              attendanceStatus: 'present',
+              workMode: null,
+              wfhType: null,
+              manualMark: { actor: req.admin._id, at: markedAt, action: 'mark_present' },
+              deletedAt: null,
+              deletedBy: null,
+            },
+            $inc: { __v: 1 },
+            $push: {
+              corrections: {
+                action: 'manual_mark',
+                actor: req.admin._id,
+                at: markedAt,
+                reason: 'Attendance marked present manually.',
+                before: snapshot(existing),
+                after: { attendanceDate, attendanceStatus: 'present', deletedAt: null },
+              },
+            },
+          },
+          { new: true, runValidators: true }
+        );
+        if (!restored) {
+          throw new AttendanceError('ALREADY_MARKED','Attendance already exists for this employee and date.',409);
+        }
+        return res.status(201).json({ success:true, message:'Attendance marked present successfully.' });
+      }
+      throw new AttendanceError('ALREADY_MARKED','Attendance already exists for this employee and date.',409);
+    }
+
+    const markedAt = new Date();
+    try {
+      await Attendance.create({
+        employeeId: employee._id,
+        attendanceDate,
+        attendanceStatus: 'present',
+        workMode: null,
+        wfhType: null,
+        manualMark: { actor: req.admin._id, at: markedAt, action: 'mark_present' },
+        corrections: [{
+          action: 'manual_mark',
+          actor: req.admin._id,
+          at: markedAt,
+          reason: 'Attendance marked present manually.',
+          before: {},
+          after: { attendanceDate, attendanceStatus: 'present' },
+        }],
+      });
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new AttendanceError('ALREADY_MARKED','Attendance already exists for this employee and date.',409);
+      }
+      throw error;
+    }
+    return res.status(201).json({ success:true, message:'Attendance marked present successfully.' });
+  } catch(e) { return fail(res,e); }
 };
 exports.edit = async (req,res) => {
   try {

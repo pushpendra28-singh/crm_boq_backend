@@ -12,6 +12,21 @@ const eventSchema = new Schema({
   originalAt: { type: Date, default: null, immutable: true },
   location: { type: locationSchema, default: null },
 }, { _id: false });
+const shiftSnapshotSchema = new Schema({
+  timezone: { type: String, required: true, enum: ["Asia/Kolkata"] },
+  scheduledCheckIn: { type: Date, required: true },
+  scheduledCheckOut: { type: Date, required: true },
+  graceEndsAt: { type: Date, required: true },
+  latitude: { type: Number, required: true, min: -90, max: 90, validate: finite },
+  longitude: { type: Number, required: true, min: -180, max: 180, validate: finite },
+  radiusMeters: { type: Number, required: true, min: 1, validate: finite },
+  maxAccuracyMeters: { type: Number, required: true, min: 1, validate: finite },
+}, { _id: false });
+const manualMarkSchema = new Schema({
+  actor: { type: Schema.Types.ObjectId, ref: "Admin", required: true },
+  at: { type: Date, required: true },
+  action: { type: String, enum: ["mark_present"], required: true },
+}, { _id: false });
 const auditSchema = new Schema({
   editedBy: { type: Schema.Types.ObjectId, ref: "Admin", required: true },
   editedAt: { type: Date, required: true, default: Date.now },
@@ -22,22 +37,14 @@ const auditSchema = new Schema({
 }, { _id: false });
 const schema = new Schema({
   employeeId: { type: Schema.Types.ObjectId, ref: "Admin", required: true, immutable: true },
-  officeId: { type: Schema.Types.ObjectId, ref: "AttendanceOffice", required: true, immutable: true },
+  manualMark: { type: manualMarkSchema, default: undefined },
+  officeId: { type: Schema.Types.ObjectId, ref: "AttendanceOffice", required: function () { return !this.manualMark; }, immutable: true },
   attendanceDate: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
   // Preserve the policy used on this day, even if office settings change later.
-  shiftSnapshot: {
-    timezone: { type: String, required: true, enum: ["Asia/Kolkata"] },
-    scheduledCheckIn: { type: Date, required: true },
-    scheduledCheckOut: { type: Date, required: true },
-    graceEndsAt: { type: Date, required: true },
-    latitude: { type: Number, required: true, min: -90, max: 90, validate: finite },
-    longitude: { type: Number, required: true, min: -180, max: 180, validate: finite },
-    radiusMeters: { type: Number, required: true, min: 1, validate: finite },
-    maxAccuracyMeters: { type: Number, required: true, min: 1, validate: finite },
-  },
-  checkIn: { type: eventSchema, required: true },
+  shiftSnapshot: { type: shiftSnapshotSchema, required: function () { return !this.manualMark; }, default: undefined },
+  checkIn: { type: eventSchema, required: function () { return !this.manualMark; }, default: undefined },
   checkOut: { type: eventSchema, default: null },
-  arrivalStatus: { type: String, required: true, enum: ["on_time", "late"] },
+  arrivalStatus: { type: String, required: function () { return !this.manualMark; }, enum: ["on_time", "late"] },
   attendanceStatus: { type: String, enum: ["present","half_day", "absent"], default: "present" },
   workMode: {
     type: String,
@@ -52,7 +59,7 @@ const schema = new Schema({
   deletedAt: { type: Date, default: null },
   deletedBy: { type: Schema.Types.ObjectId, ref: "Admin", default: null },
   corrections: [{
-    action: { type: String, enum: ["edit", "delete"], required: true },
+    action: { type: String, enum: ["edit", "delete", "manual_mark"], required: true },
     actor: { type: Schema.Types.ObjectId, ref: "Admin", required: true },
     at: { type: Date, default: Date.now },
     reason: { type: String, required: true, maxlength: 1000 },

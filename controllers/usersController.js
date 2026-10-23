@@ -2,6 +2,13 @@ const Admin = require("../models/Admin");
 const bcrypt = require("bcryptjs");
 const Role = require("../models/Role");
 
+const {
+  isSuperAdmin,
+  canManageUser,
+  resolveAssignableRole,
+  SUPERADMIN_PROTECTED_MESSAGE,
+} = require("../utils/protectedRoles");
+
 // ─── Get all users ─────────────────────────────────────────────────────────────
 // exports.getUsers = async (req, res) => {
 //   try {
@@ -76,13 +83,18 @@ exports.createUser = async (req, res) => {
       return res.status(400).json({ message: "Password must be at least 6 characters" });
     }
 
+        const roleResult = await resolveAssignableRole(req.admin, role || "employee");
+    if (!roleResult.slug) {
+      return res.status(roleResult.status).json({ message: roleResult.message });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = new Admin({
       name: name.trim(),
       email: email.toLowerCase().trim(),
       password: hashedPassword,
-      role: role || "employee",
+      role: roleResult.slug,
       isActive: true,
        employment: {
     joiningDate: employment?.joiningDate || null,
@@ -114,13 +126,20 @@ exports.updateUser = async (req, res) => {
     const { id } = req.params;
     const { name, email, password, role, employment } = req.body;
 
-    // Prevent editing own record via this endpoint to avoid accidental role downgrade
-    if (req.admin._id.toString() === id) {
+       const isSelf = req.admin._id.toString() === id;
+
+    // normal user khud ko edit nahi kar sakta (pehle jaisa), superadmin kar sakta hai
+    if (isSelf && !isSuperAdmin(req.admin)) {
       return res.status(400).json({ message: "You cannot edit your own account from this panel" });
     }
 
     const user = await Admin.findById(id);
     if (!user) return res.status(404).json({ message: "User not found" });
+
+    // superadmin ko sirf superadmin hi touch kar sakta hai
+    if (!canManageUser(req.admin, user)) {
+      return res.status(403).json({ message: SUPERADMIN_PROTECTED_MESSAGE });
+    }
 
     if (name) user.name = name.trim();
     if (email) {
@@ -129,12 +148,21 @@ exports.updateUser = async (req, res) => {
       if (conflict) return res.status(409).json({ message: "Email is already in use by another user" });
       user.email = emailLower;
     }
-    if (role && role !== user.role) {
-  user.role = role;
+       if (role && role !== user.role) {
+      if (isSelf) {
+        return res.status(400).json({ message: "You cannot change your own role" });
+      }
 
-  // clear old custom permissions
-  user.permissions = [];
-}
+      const roleResult = await resolveAssignableRole(req.admin, role);
+      if (!roleResult.slug) {
+        return res.status(roleResult.status).json({ message: roleResult.message });
+      }
+
+      user.role = roleResult.slug;
+
+      // clear old custom permissions
+      user.permissions = [];
+    }
     if (password && password.trim()) {
       if (password.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
       user.password = await bcrypt.hash(password, 10);
@@ -174,6 +202,10 @@ exports.deleteUser = async (req, res) => {
     const user = await Admin.findById(id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+        if (!canManageUser(req.admin, user)) {
+      return res.status(403).json({ message: SUPERADMIN_PROTECTED_MESSAGE });
+    }
+
     // Prevent deleting the last superadmin
     if (user.role === "superadmin") {
       const superadminCount = await Admin.countDocuments({ role: "superadmin" });
@@ -202,6 +234,11 @@ exports.toggleUserStatus = async (req, res) => {
     const user = await Admin.findById(id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+
+        if (!canManageUser(req.admin, user)) {
+      return res.status(403).json({ message: SUPERADMIN_PROTECTED_MESSAGE });
+    }
+    
     user.isActive = !user.isActive;
     await user.save();
 

@@ -2,6 +2,12 @@ const Admin = require("../models/Admin");
 const bcrypt = require("bcryptjs");
 const generateToken = require("../utils/generateToken");
 const Role = require("../models/Role");
+const {
+  canManageUser,
+  isSameUser,
+  resolveAssignableRole,
+  SUPERADMIN_PROTECTED_MESSAGE,
+} = require("../utils/protectedRoles");
 
 
 const resolvePermissions = async (admin) => {
@@ -475,13 +481,18 @@ exports.createUser = async (req, res) => {
       return res.status(409).json({ message: "Email already in use" });
     }
 
+        const roleResult = await resolveAssignableRole(req.admin, role);
+    if (!roleResult.slug) {
+      return res.status(roleResult.status).json({ message: roleResult.message });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newUser = new Admin({
       name,
       email: email.toLowerCase(),
       password: hashedPassword,
-      role,
+      role: roleResult.slug,
       permissions: permissions || [],
       createdBy: req.admin._id,
     });
@@ -512,29 +523,31 @@ exports.updateUser = async (req, res) => {
     const user = await Admin.findById(id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Prevent non-superadmin from editing superadmin
-    if (user.role === "superadmin" && req.admin.role !== "superadmin") {
-      return res.status(403).json({ message: "Cannot edit a superadmin" });
+     if (!canManageUser(req.admin, user)) {
+      return res.status(403).json({ message: SUPERADMIN_PROTECTED_MESSAGE });
+    }
+
+    if (isSameUser(req.admin, user) && ((role && role !== user.role) || permissions !== undefined)) {
+      return res.status(400).json({ message: "You cannot change your own role or permissions" });
     }
 
     if (name) user.name = name;
     if (email) user.email = email.toLowerCase();
+
+    let roleChanged = false;
     if (role && role !== user.role) {
-  user.role = role;
-
-  // clear old custom permissions
-  user.permissions = [];
-}
-    // role changed → reset custom permissions
-if (role && role !== user.role) {
-  user.role = role;
-
-  // ignore old frontend permissions
-  user.permissions = [];
-} else if (permissions !== undefined) {
-  // only update custom permissions if role not changed
-  user.permissions = permissions;
-}
+      const roleResult = await resolveAssignableRole(req.admin, role);
+      if (!roleResult.slug) {
+        return res.status(roleResult.status).json({ message: roleResult.message });
+      }
+      user.role = roleResult.slug;
+      user.permissions = [];
+      roleChanged = true;
+    }
+    if (!roleChanged && permissions !== undefined) {
+      user.permissions = permissions;
+    }
+    
     if (isActive !== undefined) user.isActive = isActive;
     if (password) user.password = await bcrypt.hash(password, 10);
 
@@ -558,8 +571,8 @@ exports.deleteUser = async (req, res) => {
     const user = await Admin.findById(id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (user.role === "superadmin" && req.admin.role !== "superadmin") {
-      return res.status(403).json({ message: "Cannot delete a superadmin" });
+      if (!canManageUser(req.admin, user)) {
+      return res.status(403).json({ message: SUPERADMIN_PROTECTED_MESSAGE });
     }
 
     await Admin.findByIdAndDelete(id);

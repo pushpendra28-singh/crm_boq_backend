@@ -1,5 +1,11 @@
 const Role = require("../models/Role");
 const Admin = require("../models/Admin");
+const {
+  isSuperAdmin,
+  isSuperAdminRole,
+  isReservedRoleName,
+  SUPERADMIN_PROTECTED_MESSAGE,
+} = require("../utils/protectedRoles");
 
 // ─── Get all roles ─────────────────────────────────────────────────────────────
 exports.getRoles = async (req, res) => {
@@ -30,6 +36,10 @@ exports.createRole = async (req, res) => {
     }
 
     const slug = name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+
+        if (isReservedRoleName(name)) {
+      return res.status(400).json({ message: "This role name is reserved for the system." });
+    }
 
     const existing = await Role.findOne({ slug });
     if (existing) {
@@ -62,7 +72,15 @@ exports.updateRole = async (req, res) => {
     const role = await Role.findById(id);
     if (!role) return res.status(404).json({ message: "Role not found" });
 
-    if (name) {
+       const targetIsSuperRole = isSuperAdminRole(role.slug);
+    if (targetIsSuperRole && !isSuperAdmin(req.admin)) {
+      return res.status(403).json({ message: SUPERADMIN_PROTECTED_MESSAGE });
+    }
+
+    if (name && !targetIsSuperRole) {
+      if (isReservedRoleName(name)) {
+        return res.status(400).json({ message: "This role name is reserved for the system." });
+      }
       role.name = name;
       role.slug = name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
     }
@@ -96,6 +114,10 @@ exports.deleteRole = async (req, res) => {
 
     const role = await Role.findById(id);
     if (!role) return res.status(404).json({ message: "Role not found" });
+
+        if (isSuperAdminRole(role.slug)) {
+      return res.status(403).json({ message: "The Super Admin role cannot be deleted." });
+    }
 
     const usersWithRole = await Admin.countDocuments({ role: role.slug });
     if (usersWithRole > 0) {
